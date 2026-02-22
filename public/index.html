@@ -24,7 +24,7 @@ h1 { color: #f0d080; font-size: 1.05rem; letter-spacing: 0.22em; padding: 10px 0
 .left-panel { border-right: 1px solid rgba(240,208,128,0.2); display: flex; flex-direction: column; align-items: center; padding: 10px; overflow-y: auto; }
 canvas { display: block; margin-bottom: 10px; }
 #historyList { width: 100%; }
-.history-item { background: rgba(0,0,0,0.2); border: 1px solid rgba(240,208,128,0.2); margin-bottom: 10px; padding: 8px; font-size: 0.75rem; border-radius: 4px; border-left: 2px solid #f0d080; }
+.history-item { background: rgba(0,0,0,0.2); border: 1px solid rgba(240,208,128,0.2); margin-bottom: 10px; padding: 8px; font-size: 0.75rem; border-radius: 4px; border-left: 2px solid #f0d080; color: #fff; }
 
 .center-panel { display: flex; flex-direction: column; align-items: center; padding: 10px; overflow-y: auto; }
 #serverIndicator { font-size: 1rem; color: #fff; background: #1a7a1a; padding: 8px 16px; font-weight: bold; border-radius: 4px; border: 1px solid #f0d080; margin-bottom: 15px; }
@@ -61,7 +61,7 @@ table.tapis td.has-bet::after { content: attr(data-chip); position: absolute; in
 
   /* Roue réduite */
   .left-panel { padding: 5px; }
-  .history-item { font-size: 0.58rem; padding: 4px; margin-bottom: 4px; }
+  .history-item { font-size: 0.58rem; padding: 4px; margin-bottom: 4px; color: #fff;}
   #resultBox { font-size: 0.85rem !important; }
 
   /* Tapis : cellules réduites proportionnellement */
@@ -107,7 +107,7 @@ table.tapis td.has-bet::after { content: attr(data-chip); position: absolute; in
 </head>
 <body>
 
-<h1>ROULETTE MULTIJOUEUR</h1>
+<h1>ROULETTE EUROPEENNE MULTIJOUEUR</h1>
 
 <!-- Banniere tourne le telephone -->
 <div id="rotatePrompt">
@@ -116,7 +116,7 @@ table.tapis td.has-bet::after { content: attr(data-chip); position: absolute; in
 </div>
 
 <div id="startScreen">
-  <h2>BIENVENUE DANS MON CASINO</h2>
+  <h2>BIENVENUE AU CASINO</h2>
   <input type="text" class="start-input" id="playerName" placeholder="Votre Pseudo" maxlength="15" />
   <button class="gold-btn" onclick="startGame()">REJOINDRE LA TABLE (500€)</button>
 </div>
@@ -369,8 +369,21 @@ function drawRoue(ang) {
 
 function animateRoue(res, cb) {
   const target = ORDER.indexOf(res), duration = 4000, start = performance.now();
-  const targetRot = (2*Math.PI*5) + (target * 2*Math.PI/37);
   const initial = currentAngle;
+
+  // Le marqueur est au SOMMET du canvas → angle canvas = -π/2 depuis le centre.
+  // Le milieu du secteur i vaut : ang + i*(2π/37) + π/37
+  // On veut que ce milieu tombe à -π/2 :
+  //   finalAngle + target*(2π/37) + π/37 = -π/2  (mod 2π)
+  //   finalAngle = -π/2 - π/37 - target*(2π/37)
+  const targetFinalAngle = -Math.PI/2 - Math.PI/37 - target * (2*Math.PI/37);
+
+  // Calcul du delta à parcourir (sens décroissant = sens de rotation de la roue)
+  let delta = initial - targetFinalAngle;
+  delta = delta % (2*Math.PI);
+  if (delta < 0) delta += 2*Math.PI;          // toujours positif
+  const targetRot = delta + 2*Math.PI * 5;    // au moins 5 tours complets
+
   function step(now) {
     const p = Math.min((now-start)/duration, 1);
     const ease = 1 - Math.pow(1-p, 3);
