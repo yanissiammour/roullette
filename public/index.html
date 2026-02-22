@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Roulette Européenne Multijoueur - Social</title>
+<script src="/socket.io/socket.io.js"></script>
+<style>
+/* ── STYLE D'ORIGINE CONSERVÉ ── */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #0a5028; min-height: 100vh; font-family: monospace; display: flex; flex-direction: column; align-items: center; overflow: hidden; }
+h1 { color: #f0d080; font-size: 1.05rem; letter-spacing: 0.22em; padding: 10px 0 7px; text-align: center; width: 100%; border-bottom: 1px solid rgba(240,208,128,0.2); }
+
+#startScreen { position: fixed; inset: 0; background: rgba(5,35,15,0.97); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; z-index: 100; }
+#startScreen h2 { color: #f0d080; font-size: 1.3rem; letter-spacing: 0.2em; }
+.start-input { width: 220px; padding: 10px; font-size: 1.2rem; font-family: monospace; border: 2px solid #f0d080; background: #0a3520; color: #f0d080; text-align: center; outline: none; }
+.gold-btn { padding: 10px 36px; font-size: 1rem; font-family: monospace; background: #f0d080; border: none; color: #000; cursor: pointer; font-weight: bold; letter-spacing: 0.12em; transition: 0.2s;}
+.gold-btn:hover { background: #fff; }
+.gold-btn:disabled { opacity: 0.35; cursor: default; }
+
+/* ── LAYOUT 3 COLONNES ── */
+#game { display: none; grid-template-columns: 440px 1fr 300px; width: 100vw; height: calc(100vh - 42px); }
+
+/* Panneau Gauche : Roue + Historique */
+.left-panel { border-right: 1px solid rgba(240,208,128,0.2); display: flex; flex-direction: column; align-items: center; padding: 10px; overflow-y: auto; }
+canvas { display: block; margin-bottom: 10px; }
+#historyList { width: 100%; }
+.history-item { background: rgba(0,0,0,0.2); border: 1px solid rgba(240,208,128,0.2); margin-bottom: 10px; padding: 8px; font-size: 0.75rem; border-radius: 4px; border-left: 2px solid #f0d080; }
+.history-item b { color: #f0d080; }
+
+/* Panneau Central : Tapis + Mises sous le tapis */
+.center-panel { display: flex; flex-direction: column; align-items: center; padding: 10px; overflow-y: auto; }
+#serverIndicator { font-size: 1rem; color: #fff; background: #1a7a1a; padding: 8px 16px; font-weight: bold; border-radius: 4px; text-align: center; border: 1px solid #f0d080; margin-bottom: 15px; }
+
+/* Tapis Style Origine */
+table.tapis { border-collapse: collapse; border: 2px solid #f0d080; }
+table.tapis td { width: 45px; height: 40px; text-align: center; border: 1px solid rgba(240,208,128,0.3); font-size: 0.85rem; font-weight: bold; cursor: pointer; color: #fff; position: relative; }
+table.tapis td.red { background: #c0222a; }
+table.tapis td.black { background: #1a1a1a; }
+table.tapis td.green0 { background: #1a7a1a; }
+table.tapis td.out { background: #083d1a; color: #f0d080; font-size: 0.65rem; }
+table.tapis td.has-bet::after { content: attr(data-chip); position: absolute; inset: 0; margin: auto; background: #f0d080; color: #000; border-radius: 50%; width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; font-size: 0.65rem; border: 1px solid #000; }
+
+/* RECAPITULATIF DES MISES (Sous le tapis) */
+.bets-under-table { width: 100%; max-width: 600px; margin-top: 20px; background: rgba(0,0,0,0.3); border: 1px solid rgba(240,208,128,0.2); padding: 10px; border-radius: 5px; }
+.bets-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px; margin-top: 10px; max-height: 180px; overflow-y: auto; }
+.bet-card { background: rgba(255,255,255,0.05); padding: 6px; border-left: 3px solid #f0d080; font-size: 0.7rem; position: relative; color: #fff; }
+.bet-card .rm { position: absolute; right: 5px; top: 2px; color: #ff8080; cursor: pointer; font-weight: bold; }
+
+/* Panneau Droit : Chat Uniquement */
+.right-panel { border-left: 1px solid rgba(240,208,128,0.2); background: rgba(0,0,0,0.2); display: flex; flex-direction: column; }
+#chatBox { flex: 1; overflow-y: auto; padding: 10px; font-size: 0.8rem; color: #ddd; }
+.msg { margin-bottom: 5px; line-height: 1.3; border-bottom: 1px solid rgba(255,255,255,0.03); padding-bottom: 3px; }
+.msg b { color: #f0d080; }
+.chat-input-area { display: flex; padding: 10px; background: rgba(0,0,0,0.3); }
+#chatInput { flex: 1; background: #0a3520; border: 1px solid #f0d080; color: #fff; padding: 8px; outline: none; font-family: monospace; }
+</style>
+</head>
+<body>
+
+<h1> ROULETTE MULTIJOUEUR</h1>
+
+<div id="startScreen">
+  <h2>BIENVENUE DANS MON CASINO</h2>
+  <input type="text" class="start-input" id="playerName" placeholder="Votre Pseudo" maxlength="15" />
+  <button class="gold-btn" onclick="startGame()">REJOINDRE LA TABLE (500€)</button>
+</div>
+
+<div id="game">
+  <div class="left-panel">
+    <canvas id="c" width="400" height="400"></canvas>
+    <div id="resultBox" style="font-size: 1.2rem; color: #f0d080; font-weight: bold; margin-bottom: 15px; height: 30px;"></div>
+    <div style="width: 100%; border-top: 1px solid rgba(240,208,128,0.3); padding-top: 10px;">
+      <p style="color: #f0d080; font-size: 0.8rem; margin-bottom: 10px; letter-spacing: 0.1em;">HISTORIQUE DES TOURS</p>
+      <div id="historyList"></div>
+    </div>
+  </div>
+
+  <div class="center-panel">
+    <div id="serverIndicator">05:00</div>
+    <table class="tapis" id="tableEl"></table>
+
+    <div class="bets-under-table">
+      <p style="color: #f0d080; font-size: 0.75rem; letter-spacing: 0.1em;">MISES SUR LA TABLE :</p>
+      <div id="betsList" class="bets-grid"></div>
+    </div>
+
+    <div style="margin-top:20px; display:flex; gap:15px; align-items:center; background: rgba(0,0,0,0.2); padding: 15px; border-radius: 5px; border: 1px solid rgba(240,208,128,0.1);">
+      <div style="color: #f0d080;">Solde: <span id="balEl" style="font-weight:bold; font-size:1.1rem;">500</span>€</div>
+      <div style="color: #fff;">Mise: <input type="number" id="miseEl" value="10" min="1" style="width:70px; background: #0a3520; border: 1px solid #f0d080; color: #f0d080; padding: 5px; text-align: center;"></div>
+      <button class="gold-btn" id="readyBtn" onclick="confirmReady()">PRÊT</button>
+      <button onclick="clearAllBets()" style="background:none; border: 1px solid #ff8080; color: #ff8080; cursor: pointer; padding: 8px; font-family: monospace; font-size: 0.7rem;">EFFACER</button>
+    </div>
+  </div>
+
+  <div class="right-panel">
+    <div style="padding: 10px; border-bottom: 1px solid rgba(240,208,128,0.2); text-align: center; color: #f0d080; font-size: 0.8rem; letter-spacing: 0.1em;">CHAT DE LA TABLE</div>
+    <div id="chatBox"></div>
+    <div class="chat-input-area">
+      <input type="text" id="chatInput" placeholder="Message...">
+      <button onclick="sendChat()" style="background:#f0d080; border:none; padding:5px 12px; margin-left:5px; cursor:pointer; font-weight:bold;">OK</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const socket = io();
+let myBalance = 500;
+let myBets = [];
+let isReady = false;
+let isSpinning = false;
+const REDS = new Set([1,3,5,7,9,12,14,16,18,19,21,23,25,27,30,32,34,36]);
+const ORDER = [0,32,15,19,4,21,2,25,17,34,6,27,13,36,11,30,8,23,10,5,24,16,33,1,20,14,31,9,22,18,29,7,28,12,35,3,26];
+
+// --- INITIALISATION ---
+function startGame() {
+  const name = document.getElementById('playerName').value.trim();
+  if(!name) return alert("Pseudo requis");
+  socket.emit('join', name);
+  document.getElementById('startScreen').style.display = 'none';
+  document.getElementById('game').style.display = 'grid';
+  buildTable();
+  drawRoue(0);
+}
+
+// --- CHAT TEXTUEL ---
+function sendChat() {
+  const input = document.getElementById('chatInput');
+  if(input.value.trim()) {
+    socket.emit('sendMessage', input.value);
+    input.value = '';
+  }
+}
+document.getElementById('chatInput').addEventListener('keypress', e => { if(e.key === 'Enter') sendChat(); });
+
+socket.on('chatMessage', data => {
+  const box = document.getElementById('chatBox');
+  box.innerHTML += `<div class="msg"><b>${data.name}:</b> ${data.text}</div>`;
+  box.scrollTop = box.scrollHeight;
+});
+
+// --- LOGIQUE DE JEU ---
+socket.on('timer', (t) => {
+  const min = Math.floor(t/60), sec = t%60;
+  const timeStr = `${min}:${sec.toString().padStart(2,'0')}`;
+  document.getElementById('serverIndicator').textContent = (isReady ? "EN ATTENTE - " : "MISES : ") + timeStr;
+});
+
+socket.on('updateGlobalBets', (all) => {
+  const list = document.getElementById('betsList');
+  list.innerHTML = '';
+  all.forEach(b => {
+    const isMe = b.socketId === socket.id;
+    list.innerHTML += `<div class="bet-card">
+      <b>${b.playerName}</b><br>${b.label}<br>${b.amount}€
+      ${(isMe && !isReady) ? `<span class="rm" onclick="removeBet(${b.betId})">✕</span>` : ''}
+    </div>`;
+  });
+  updateTableChips();
+});
+
+socket.on('spin', data => {
+  isSpinning = true; isReady = false;
+  document.getElementById('readyBtn').disabled = true;
+  document.getElementById('serverIndicator').textContent = "LES JEUX SONT FAITS";
+  document.getElementById('serverIndicator').style.background = "#c0222a";
+  
+  animateRoue(data.result, () => {
+    isSpinning = false;
+    displayResults(data.roundResults, data.result);
+  });
+});
+
+socket.on('newRound', () => {
+  myBets = []; isReady = false;
+  document.getElementById('readyBtn').disabled = false;
+  document.getElementById('serverIndicator').style.background = "#1a7a1a";
+  document.getElementById('resultBox').textContent = "";
+  updateTableChips();
+});
+
+function confirmReady() {
+  if(myBets.length === 0) return alert("Placez une mise avant d'être prêt !");
+  isReady = true;
+  document.getElementById('readyBtn').disabled = true;
+  socket.emit('playerReady');
+}
+
+function handleCellClick(td) {
+  if(isReady || isSpinning) return;
+  const val = parseInt(document.getElementById('miseEl').value);
+  const total = myBets.reduce((a,b)=>a+b.amount, 0);
+  if(val > (myBalance - total)) return;
+
+  const key = td.dataset.key;
+  const existing = myBets.find(b => b.tdKey === key);
+  if(existing) existing.amount += val;
+  else myBets.push({ id: Date.now(), tdKey: key, nums: JSON.parse(td.dataset.nums), payout: parseInt(td.dataset.payout), label: td.dataset.label, amount: val });
+  
+  socket.emit('updateBets', myBets);
+  updateTableChips();
+}
+
+function updateTableChips() {
+  document.querySelectorAll('td').forEach(td => { td.classList.remove('has-bet'); td.removeAttribute('data-chip'); });
+  myBets.forEach(b => {
+    const td = document.querySelector(`td[data-key="${b.tdKey}"]`);
+    if(td) { td.classList.add('has-bet'); td.setAttribute('data-chip', b.amount+'€'); }
+  });
+  const engaged = myBets.reduce((a,b)=>a+b.amount, 0);
+  document.getElementById('balEl').textContent = myBalance - engaged;
+}
+
+function removeBet(id) {
+  myBets = myBets.filter(b => b.id !== id);
+  socket.emit('updateBets', myBets);
+  updateTableChips();
+}
+
+function clearAllBets() { if(!isReady) { myBets = []; socket.emit('updateBets', []); updateTableChips(); } }
+
+// --- HISTORIQUE ---
+function displayResults(results, num) {
+  const color = num === 0 ? "VERT" : (REDS.has(num) ? "ROUGE" : "NOIR");
+  document.getElementById('resultBox').textContent = `GAGNANT : ${num} ${color}`;
+  
+  const hList = document.getElementById('historyList');
+  const div = document.createElement('div');
+  div.className = 'history-item';
+  div.innerHTML = `<b>Tour: ${num} (${color})</b><br>`;
+  
+  results.forEach(r => {
+    div.innerHTML += `${r.name}: ${r.net >= 0 ? '+' : ''}${r.net}€ (Total: ${r.newBalance}€)<br>`;
+    if(r.socketId === socket.id) {
+      myBalance = r.newBalance;
+      document.getElementById('balEl').textContent = myBalance;
+    }
+  });
+  hList.insertBefore(div, hList.firstChild);
+}
+
+// --- TAPIS ET ROUE ---
+function buildTable() {
+  const t = document.getElementById('tableEl'); t.innerHTML = "";
+  for(let r=0; r<3; r++) {
+    const tr = t.insertRow();
+    if(r===0) {
+      const z = tr.insertCell(); z.rowSpan=3; z.className="green0"; z.textContent="0";
+      setupCell(z, "zero", [0], 35, "Plein 0");
+    }
+    for(let c=0; c<12; c++) {
+      const n = c*3+(3-r);
+      const td = tr.insertCell(); td.textContent=n; td.className=REDS.has(n)?"red":"black";
+      setupCell(td, "n"+n, [n], 35, "Plein "+n);
+    }
+  }
+}
+function setupCell(td, key, nums, pay, lbl) {
+  td.dataset.key=key; td.dataset.nums=JSON.stringify(nums); td.dataset.payout=pay; td.dataset.label=lbl;
+  td.onclick = () => handleCellClick(td);
+}
+
+const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
+let currentAngle = 0;
+function drawRoue(ang) {
+  const cx=200, cy=200, r=180;
+  ctx.clearRect(0,0,400,400);
+  for(let i=0; i<37; i++) {
+    const a = ang + (i*2*Math.PI/37);
+    ctx.beginPath(); ctx.moveTo(cx,cy); ctx.arc(cx,cy,r,a,a+(2*Math.PI/37));
+    const num = ORDER[i];
+    ctx.fillStyle = num===0?"#1a7a1a":(REDS.has(num)?"#c0222a":"#1a1a1a");
+    ctx.fill(); ctx.strokeStyle="rgba(255,255,255,0.1)"; ctx.stroke();
+    ctx.save(); ctx.translate(cx,cy); ctx.rotate(a + Math.PI/37 + Math.PI/2);
+    ctx.fillStyle="white"; ctx.font="10px monospace"; ctx.fillText(num, -5, -r+20); ctx.restore();
+  }
+  ctx.fillStyle="#f0d080"; ctx.beginPath(); ctx.moveTo(200,10); ctx.lineTo(190,-5); ctx.lineTo(210,-5); ctx.fill();
+}
+function animateRoue(res, cb) {
+  const target = ORDER.indexOf(res), duration = 5000, start = performance.now();
+  const targetRot = (2*Math.PI*5) + (target * 2*Math.PI/37);
+  const initial = currentAngle;
+  function step(now) {
+    const progress = Math.min((now-start)/duration, 1);
+    const ease = 1 - Math.pow(1-progress, 3);
+    currentAngle = initial - (ease * targetRot);
+    drawRoue(currentAngle);
+    if(progress < 1) requestAnimationFrame(step); else cb();
+  }
+  requestAnimationFrame(step);
+}
+</script>
+</body>
+</html>
